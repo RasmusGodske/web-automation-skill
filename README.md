@@ -83,6 +83,21 @@ AGENTS.md                          harness-neutral pointer to the skill body
 install.sh                         cross-harness installer
 ```
 
+## Credits
+
+This skill stands entirely on the work of **Corey Gallon** ([@captivus](https://github.com/captivus)):
+
+- **`chrome-agent`** — the CLI this skill wraps: <https://github.com/captivus/chrome-agent>
+- His talk on CDP-based agent browser automation (the "meatbag ladder", the
+  sense→act loop, the trusted-input insight): <https://www.youtube.com/watch?v=26RtyAm9y_Q>
+- His blog: <https://gallon.me>
+
+The rung-ladder framing and the trusted-vs-synthetic-input mechanic are his;
+this repo only packages the methodology as a portable, installable skill. For
+multi-agent / human-agent collaboration and the "binding bridge" technique, see
+`docs/collaboration-guide.md` in the chrome-agent repo.
+
 ## License
 
 MIT
+

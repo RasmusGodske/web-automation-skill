@@ -144,3 +144,13 @@ chrome-agent status          # VERIFY it's gone — the stop's return is not the
 chrome-agent cleanup         # drop any dead instances / stale session dirs
 ```
 Keep an instance alive only deliberately (e.g. a login session you want later).
+
+## Further reading & credits
+
+- `chrome-agent guide` — the tool's authoritative, version-tracked mechanics.
+- Multi-agent / human-agent collaboration and the "binding bridge" (observing a
+  user's clicks/scroll/selection, which raw CDP doesn't expose): see
+  `docs/collaboration-guide.md` in the chrome-agent repo.
+- Built on **Corey Gallon**'s `chrome-agent` (<https://github.com/captivus/chrome-agent>),
+  his talk (<https://www.youtube.com/watch?v=26RtyAm9y_Q>), and blog
+  (<https://gallon.me>). The rung-ladder and trusted-input method are his.
