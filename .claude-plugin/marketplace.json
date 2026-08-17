@@ -1,0 +1,15 @@
+{
+  "name": "web-automation-skill",
+  "owner": {
+    "name": "Rasmus Godske",
+    "email": "rasmusgodske@gmail.com"
+  },
+  "description": "Marketplace for the web-automation skill — chrome-agent (CDP) browser automation.",
+  "plugins": [
+    {
+      "name": "web-automation",
+      "source": "./",
+      "description": "Drive a real Chrome browser from the CLI via chrome-agent to automate web tasks on your own accounts and sites."
+    }
+  ]
+}

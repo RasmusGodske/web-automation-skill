@@ -1,0 +1,11 @@
+{
+  "name": "web-automation",
+  "displayName": "Web Automation (chrome-agent)",
+  "description": "Drive a real Chrome browser from the CLI via chrome-agent (Chrome DevTools Protocol) to automate web tasks on your own accounts and sites.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Rasmus Godske",
+    "email": "rasmusgodske@gmail.com"
+  },
+  "keywords": ["browser", "automation", "chrome", "cdp", "chrome-agent", "web", "scraping"]
+}
