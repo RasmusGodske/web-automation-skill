@@ -101,6 +101,60 @@ eased/curved motion, `mouseReleased`. Vision (screenshot → reason → act) whe
 the page state only exists in pixels. Keep this rung within the Scope section
 above.
 
+## Working on SPAs & dynamic sites
+
+Modern sites are single-page apps: the URL is a routing hint, `readyState` can
+read "complete" while nothing changed, and the DOM is rebuilt constantly. Six
+habits keep you honest on any of them.
+
+**1. Validate the act — cheaply, never assume.** After any action — typing,
+clicking, submitting — verify the expected effect actually happened: a network
+request fired, a URL shifted, a list re-rendered. Pick the cheapest
+trustworthy signal: a captured request beats a DOM read, a DOM read beats
+pixels. A control that returns success is not proof; the field can show your
+text while no request ever fires. Cheap validation is also a regression
+tripwire — when the site changes behavior later, the check fails the moment it
+drifts instead of silently collecting wrong results.
+
+**2. The app's state is your alternative API.** Most apps encode actions
+(search, filters, pagination, tabs) as URL parameters or navigable routes.
+When an interaction doesn't validate, find the parameter, route, or in-app
+control that produces the same effect — the same request the UI would make,
+with fewer fragile pieces. Act → cheap-validate → on failure, slide to the
+app's own equivalent action and validate again.
+
+**3. Verify like a skeptic.** An action's return value proves nothing; confirm
+through a different channel than the one you acted on. A screenshot is ground
+truth for what's on screen — and a screenshot call that hangs is itself a
+signal that the page is stuck, not a broken tool.
+
+**4. Classify the failure before retrying.** Four look-alikes need four
+different responses: the action didn't land (no-op), the thing genuinely
+doesn't exist, the page render is broken (frozen), or it was a one-off blip.
+When "nothing appears" repeats, probe a known-good control first — it
+separates "the site stopped working" from "there's nothing there" before you
+record anything.
+
+**5. Wait for signals, not durations.** Speed doesn't come from shorter
+sleeps — it comes from precise readiness detection. After an action, wait for
+the specific thing that proves the effect: the row that should appear, the
+request that should fire, the spinner that should vanish. Poll for that
+condition with a timeout as a backstop, not a fixed sleep (except as a final
+fallback). This self-tunes: a fast site is handled fast automatically, a slow
+one just waits its actual latency. And it merges with validation: if the
+expected signal never appears, that *is* the failure to classify — you never
+end up hoping a sleep was long enough. Fixed delays then have exactly one job:
+deliberate rate-limiting between actions — a site-consent posture set with the
+operator, never a performance tool.
+
+**6. Make every wait observable.** A wait isn't done when the timer elapses —
+it ends with a *classified outcome*. Log each one (what was waited for,
+seen/timeout, how long it took) so a run leaves a trace you can read after the
+fact: which step stalled, where, and for how long. When "it should load in 5
+seconds" doesn't, that's not a mystery — it's a line in the file. This turns a
+failed automation from "re-run it to debug" into "read the trace and see which
+step never produced its signal."
+
 ## Common non-click patterns (often better than driving the UI)
 
 - **Web UI as an ad-hoc API.** `Runtime.evaluate` running `fetch()` *inside* the
