@@ -155,6 +155,12 @@ seconds" doesn't, that's not a mystery — it's a line in the file. This turns a
 failed automation from "re-run it to debug" into "read the trace and see which
 step never produced its signal."
 
+Timestamps earn their keep only when they let you *compute durations*: record
+them with millisecond precision plus an epoch value so any two events can be
+diffed, and time operations as start/end *span* events (a login, a submit, a
+render wait). "This step took longer than usual" is then a number you can
+aggregate, not a feeling.
+
 ## Common non-click patterns (often better than driving the UI)
 
 - **Web UI as an ad-hoc API.** `Runtime.evaluate` running `fetch()` *inside* the
