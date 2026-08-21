@@ -19,15 +19,49 @@ skill is the *method*; the tool ships the authoritative *mechanics*.
 
 ## Scope — read first
 
-Use this on **accounts and sites you own or are authorized to automate**.
-The right uses are your own workflows: your email/web clients, your dashboards,
-internal tools, your own test sites. Do **not** use this to defeat CAPTCHAs,
-bot-detection, or access controls on sites you don't control, to
-scrape/abuse third-party services against their terms, or to impersonate a
-human where a site has decided it doesn't want automation. Those are out of
-scope for this skill regardless of how it's framed. If a page fights back and
-it isn't yours, stop — that's a signal to get permission or use a real API,
-not to climb harder.
+Use this on **accounts and sites you own or are authorized to automate**:
+your email/web clients, your dashboards, internal tools, your own test sites.
+Do **not** use this to defeat access controls or scrape third-party services
+against their terms. If a page fights back and it isn't yours, stop — get
+permission or find a real API; don't climb harder.
+
+Within authorized work, *how* pages that fight back are handled is the
+**operator's preference, decided in the calibration (below)** — never a
+silent default. Some operators want fully automatic challenge handling
+(solve, track frequency, widen breaks as challenges rise); others want
+challenges handed to them to click; others want an immediate stop. Ask.
+
+## Use cases & calibration — orient before automating
+
+This skill is **static**: its documents change only when the operator asks.
+Findings from your work live in the **project**, not here (below).
+
+Different jobs need different behavior. Decide which use case this is, and
+calibrate when the job is open-ended:
+
+- **`use-cases/README.md`** — the classifier: which kind of automation is
+  this (bulk data extraction / form & workflow / recurring monitoring), and
+  how to treat mixed jobs.
+- **`use-cases/calibration.md`** — a short interview run *before* touching
+  the browser, one question at a time (options + a recommendation each),
+  covering purpose & horizon, site posture, challenge handling, pace,
+  replicability, and extraction preference.
+
+**The gate (run silently first):**
+1. Has the operator already specified what/how — site, accounts, flow, approach?
+2. Are we mid-conversation with that context fresh (a long build session, this
+   repo, prior discussion)?
+3. Is the request open-ended — "scrape X", no scope given?
+
+→ If **1 or 2**: skip the interview; the answers are already in context —
+   read the relevant use-case doc and start.
+→ If **3** and neither 1 nor 2: run the calibration, then the use-case doc.
+
+Long-running or repeatable jobs also create the project's automation
+workspace: `.web-automations/NOTES.md` (how the site works, decisions, resume
+state + exact next command) and `.web-automations/progress/` (append-only
+checkpoints + cursor). A fresh agent must be able to take over a run purely
+from that directory.
 
 ## Step 0 — is the tool here?
 
@@ -49,6 +83,12 @@ chrome-agent help <inst> <Domain>[.<method>]   # live protocol reference from th
 This skill deliberately does **not** duplicate the guide (it would go stale).
 This file is the *decision procedure* and the *reuse workflow*; `chrome-agent
 guide` is the reference. Read both.
+
+The skill folder carries a pinned snapshot of upstream chrome-agent at the
+**v0.5.7** release: `docs/guide.md`, `docs/collaboration-guide.md`, `docs/
+cdp-collaboration-reference.md`, `docs/monitor-integration.md`, `docs/
+event-driven-without-monitor.md`. Use it offline or to diff what changed; the
+CLI's `guide` wins when they disagree.
 
 ## The mental model
 
@@ -100,6 +140,69 @@ sites). A drag is a real path: `mousePressed`, several `mouseMoved` steps with
 eased/curved motion, `mouseReleased`. Vision (screenshot → reason → act) when
 the page state only exists in pixels. Keep this rung within the Scope section
 above.
+
+## CAPTCHA widgets & closed shadow roots (Cloudflare Turnstile)
+
+Verified first-hand in a local lab (official test sitekeys) against the real
+widget internals. Modern Turnstile mounts its widget iframe inside a **closed
+shadow root**: page JS is blind to it — `querySelectorAll('iframe')` returns 0
+while the checkbox renders, `element.shadowRoot` is `null` (closed), and only
+the form field (`input#cf-chl-widget-…_response`) sits in light DOM. So
+CAPTCHA "find the iframe and click it" logic written in page JS silently
+no-ops — wrong channel, not wrong selector. This is the canonical
+rung-1-fails-silently→rung-2 case, and detection must leave page JS entirely.
+
+The stack that works (implemented in `scripts/turnstile-detect.sh` — bash,
+zero-dep CLI probe — and `scripts/turnstile.py` — stdlib Python twin with the
+same interface, for embedding in Python codebases):
+
+1. **Detect** — CDP `DOM.getDocument '{"depth":-1,"pierce":true}'` pierces
+   closed shadow roots (page JS cannot). Find the `iframe` whose `src` matches
+   `challenges.cloudflare.com` (id `cf-chl-widget`). Alternative surface:
+   `DOM.getNodeForLocation '{"x":…,"y":…}'` returns the node under a coordinate.
+2. **Measure** — `DOM.getBoxModel '{"backendNodeId":N}'` → viewport box; its
+   center is the click target. Use `backendNodeId` (not `nodeId`) — it survives
+   across one-shot calls, `nodeId` goes stale.
+3. **Click** — synthetic `element.click()` cannot land (closed root +
+   cross-origin iframe). Trusted `Input.dispatchMouseEvent` press+release at
+   the center routes through the compositor into the shadow/iframe —
+   viewport-relative, no iframe math. On the interactive test key this single
+   click produced a passing token.
+4. **Verify** — `turnstile.getResponse()` works from page JS even though the
+   widget DOM is closed; empty = not passed, token = passed,
+   `error-callback`/`timeout-callback` = blocked. Invisible widgets mount a
+   hidden iframe: its box is degenerate (0-size / off-viewport) — don't click,
+   wait on token/error instead.
+
+Behavioral reality (verified with page-level pointer logging): events routed to
+the widget iframe are **invisible to the parent page** — a page observes your
+approach only until the pointer crosses into the frame (measured: 7 of 20
+approach moves visible, the click itself never). Real risk engines also weigh
+dwell, press duration, micro-jitter, and environmental signals (IP/UA/TLS
+reputation); the heavy weights are environmental, so no input path rescues a
+flagged fingerprint — and plain clicks pass clean traffic.
+
+Testing: Cloudflare's official test sitekeys — `1x00000000000000000000AA`
+always-pass, `2x00000000000000000000AB` always-fail, `1x…BB`/`2x…BB` invisible
+pass/fail, `3x00000000000000000000FF` forces interactive challenge — work on
+`localhost` and return dummy tokens (`XXXX.DUMMY.TOKEN.XXXX`). They
+short-circuit the risk engine, so use them for mechanics (detect/click/verify),
+never to conclude about real evaluation; behavioral A/B needs a real sitekey on
+your own domain.
+
+## Targeting tabs
+
+An instance can hold several tabs; direct one-shots at the right one:
+
+```bash
+chrome-agent <inst> --target 2 Page.navigate '{"url":"..."}'   # 1-based index
+chrome-agent <inst> --target 956FD3C2 Runtime.evaluate '{...}' # target-id prefix
+chrome-agent <inst> --url example.com Runtime.evaluate '{...}' # url substring
+```
+
+Multiple tabs with no specifier is an error that lists them. **Index gotcha:**
+`--target N` indices sort by stable target id, **not** tab creation/visual
+order — opening a tab renumbers the others. Prefer `--url` or an id prefix.
 
 ## Working on SPAs & dynamic sites
 
@@ -165,16 +268,68 @@ aggregate, not a feeling.
 
 - **Web UI as an ad-hoc API.** `Runtime.evaluate` running `fetch()` *inside* the
   logged-in page inherits its session — same-origin API calls, zero credential
-  handling. Pass `awaitPromise:true` and `returnByValue:true`.
+  handling. Pass `awaitPromise:true` and `returnByValue:true` (without the
+  former it returns before the data resolves).
+- **API discovery.** `performance.getEntriesByType("resource")` recovers the
+  backend endpoints the page already called — post-hoc, no live `Network`
+  subscription. After 2–3 guessed endpoints 404, stop guessing and observe one
+  real request via `attach +Network.responseReceived` (filename is in
+  `content-disposition`).
 - **React-controlled inputs** need the native setter so React sees the change:
   ```bash
   chrome-agent <inst> Runtime.evaluate '{"expression":"(()=>{const el=document.querySelector(\"#email\");const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,\"value\").set;set.call(el,\"a@b.com\");el.dispatchEvent(new Event(\"input\",{bubbles:true}));})()"}'
   ```
 - **Typing (trusted):** `Input.insertText '{"text":"..."}'` or `Input.dispatchKeyEvent`.
+- **Cookie handoff for bulk.** `Network.getCookies '{"urls":["https://host/"]}'`
+  extracts the session into a `Cookie:` header so `curl` (or any client) can fan
+  out a large transfer outside the CDP channel.
+- **File upload without a dialog.** `DOM.setFileInputFiles` sets paths on a
+  `<input type=file>` with no OS picker. Identify the input by
+  **`backendNodeId`** — the node handle that survives across one-shot calls
+  (`nodeId`/`objectId` go stale between calls).
+- **Reach into shadow DOM / cross-origin iframes.** `DOM.getDocument
+  '{"depth":-1,"pierce":true}'` traverses where a main-frame `querySelector`
+  can't; `DOM.getNodeForLocation '{"x":…,"y":…,"includeUserAgentShadowDOM":true}'`
+  returns the node under a coordinate. Trusted `Input` stays viewport-relative.
+- **Exact-size PDF.** `Page.printToPDF` with explicit `paperWidth`/`paperHeight`
+  (inches) + zero margins + `printBackground:true` (the `--print-to-pdf` flag
+  ignores `@page` size and emits US Letter).
 - **Screenshot decode:** `data` is base64 PNG at the top level (not `result.data`).
   Use `scripts/shot.sh <inst> <out.png>` in this skill folder.
 - **Wait on readiness, not a fixed sleep:** poll `document.readyState === "complete"`
-  or attach `+Page.loadEventFired` before acting.
+  via `Runtime.evaluate` in a short retry loop, or attach `+Page.loadEventFired`
+  before acting.
+
+## Reacting to events (this harness has no Monitor tool)
+
+Claude Code's Monitor turns an `attach` stream into live notifications. Here
+the equivalent is one backgrounded `attach` plus one blocking wait per event
+you care about — `scripts/cdp-wait.py` (upstream's, v0.5.7):
+
+```bash
+# once per flow: stream subscribed events to a file
+chrome-agent attach <inst> +Page.frameNavigated +Page.loadEventFired \
+  +Runtime.exceptionThrown +Network.loadingFailed > /tmp/events.jsonl 2>&1 &
+# per event: block until it lands (measured ~82 ms vs ~4.9 s for a sleep 5)
+python3 scripts/cdp-wait.py --file /tmp/events.jsonl \
+  --method Page.loadEventFired --timeout 20
+```
+
+Rules that keep this honest:
+- **Subscription menu is `help`:** `chrome-agent help <inst> <Domain>` prints an
+  explicit `Events:` block; `help <inst> <Domain>.event` shows the payload. The
+  live protocol is truth, not a static list.
+- **Always include failure events** (`+Runtime.exceptionThrown
+  +Network.loadingFailed`). A happy-path-only stream stays silent through
+  trouble, and silence looks identical to "nothing happened yet."
+- `cdp-wait.py` catches events that fired *before* the wait started; bare
+  `tail -f` silently drops those.
+- **Never point a raw `ws://…/devtools/page/<id>` at CDP** — the socket connects
+  and receives zero events (no `Domain.enable` handshake). Use `attach`.
+- Never `head` a monitored pipeline; filter with `jq --unbuffered` /
+  `grep --line-buffered` (jq buffers by default and stalls events).
+- One-shots **can't intercept `Network`** (they detach immediately) — persistent
+  sessions use `attach` or the Python API.
 
 ## Step 2 — the reuse workflow (this is the whole point)
 
@@ -205,12 +360,34 @@ chrome-agent cleanup         # drop any dead instances / stale session dirs
 ```
 Keep an instance alive only deliberately (e.g. a login session you want later).
 
+## Gotchas
+
+- **Navigation kills context.** A pending `Runtime.evaluate` errors with
+  "context destroyed" when the page navigates — retry on the new page.
+- **One-shot latency** ~70 ms (process startup). Tight loops or event capture →
+  `attach` / the Python driver.
+- **Multiple live instances** disable name auto-selection for bare one-shots —
+  they error and list the instances. `help` is exempt (schema is identical).
+- **Event isolation.** Each `attach` session sees only its own subscriptions;
+  add/remove mid-session via stdin (`+Event` / `-Event`).
+- **Sandbox launches** (containers, bubblewrap) record sandbox-local PIDs and
+  the browser dies with the sandbox — launch on the host, fresh port (never
+  reuse another instance's `--remote-debugging-port`).
+
 ## Further reading & credits
 
-- `chrome-agent guide` — the tool's authoritative, version-tracked mechanics.
-- Multi-agent / human-agent collaboration and the "binding bridge" (observing a
-  user's clicks/scroll/selection, which raw CDP doesn't expose): see
-  `docs/collaboration-guide.md` in the chrome-agent repo.
+- `chrome-agent guide` (pinned copy: `docs/guide.md` @ v0.5.7) — authoritative,
+  version-tracked mechanics.
+- `docs/collaboration-guide.md` + `docs/cdp-collaboration-reference.md` —
+  multi-agent / human-agent collaboration and the "binding bridge" (observing
+  a user's clicks/scroll/selection, which raw CDP doesn't expose).
+- `docs/event-driven-without-monitor.md` — event-driven observation in depth,
+  with the reproducible proof (`scripts/cdp-wait.py`, `scripts/cdp-wait-prove.sh`).
+- `docs/monitor-integration.md` — Claude Code Monitor integration: dual-channel
+  architecture, usage, troubleshooting.
+- **Python API:** `from chrome_agent.cdp_client import CDPClient, get_ws_url` +
+  the generated typed domains (`chrome_agent.domains.*`); `send(method=…,
+  params=…)` reaches any method, bindings or not.
 - Built on **Corey Gallon**'s `chrome-agent` (<https://github.com/captivus/chrome-agent>),
   his talk (<https://www.youtube.com/watch?v=26RtyAm9y_Q>), and blog
   (<https://gallon.me>). The rung-ladder and trusted-input method are his.
